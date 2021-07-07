@@ -33,15 +33,15 @@ repositories {
 }
 
 dependencies {
-    compile "io.projectreactor:reactor-core:3.4.6"
-    testCompile "io.projectreactor:reactor-test:3.4.6"
+    compile "io.projectreactor:reactor-core:3.4.7"
+    testCompile "io.projectreactor:reactor-test:3.4.7"
 
     // Alternatively, use the following for latest snapshot artifacts in this line
-    // compile "io.projectreactor:reactor-core:3.4.7-SNAPSHOT"
-    // testCompile "io.projectreactor:reactor-test:3.4.7-SNAPSHOT"
+    // compile "io.projectreactor:reactor-core:3.4.8-SNAPSHOT"
+    // testCompile "io.projectreactor:reactor-test:3.4.8-SNAPSHOT"
 
     // Optionally, use `reactor-tools` to help debugging reactor code
-    // implementation "io.projectreactor:reactor-tools:3.4.6"
+    // implementation "io.projectreactor:reactor-tools:3.4.7"
 }
 ```
 
@@ -218,4 +218,4 @@ _Powered by [Reactive Streams Commons](https://github.com/reactor/reactive-strea
 
 _Licensed under [Apache Software License 2.0](www.apache.org/licenses/LICENSE-2.0)_
 
-_Sponsored by [Pivotal](https://pivotal.io)_
+_Sponsored by [VMware](https://tanzu.vmware.com/)_

@@ -1,11 +1,11 @@
 /*
- * Copyright (c) 2011-2017 Pivotal Software Inc, All Rights Reserved.
+ * Copyright (c) 2017-2021 VMware Inc. or its affiliates, All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *       https://www.apache.org/licenses/LICENSE-2.0
+ *   https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -286,12 +286,14 @@ public interface Context extends ContextView {
 	/**
 	 * See {@link #putAll(ContextView)}.
 	 *
-	 * @deprecated will be removed in 3.5, kept for backward compatibility with 3.3
+	 * @deprecated will be removed in 3.5, kept for backward compatibility with 3.3. Until
+	 * then if you need to work around the deprecation, use {@link #putAll(ContextView)}
+	 * combined with {@link #readOnly()}
 	 * @param context the {@link Context} from which to copy entries
 	 * @return a new {@link Context} with a merge of the entries from this context and the given context.
 	 */
 	@Deprecated
 	default Context putAll(Context context) {
-		return this.putAll((ContextView) context);
+		return this.putAll(context.readOnly());
 	}
 }
