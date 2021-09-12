@@ -2330,17 +2330,6 @@ public class StepVerifierTests {
 
 	@Test
 	public void verifyDrainOnRequestInCaseOfFusion() {
-		Sinks.One<Integer> processor = Sinks.one();
-		StepVerifier.create(processor.asMono(), 0)
-				.expectFusion(Fuseable.ANY)
-				.then(() -> processor.emitValue(1, FAIL_FAST))
-				.thenRequest(1)
-				.expectNext(1)
-				.verifyComplete();
-	}
-
-	@Test
-	public void verifyDrainOnRequestInCaseOfFusion2() {
 		ArrayList<Long> requests = new ArrayList<>();
 		Sinks.Many<Integer> processor = Sinks.many().unicast().onBackpressureBuffer();
 		StepVerifier.create(processor.asFlux().doOnRequest(requests::add), 0)
@@ -2460,5 +2449,126 @@ public class StepVerifierTests {
 		assertThat(options.getVirtualTimeSchedulerSupplier())
 				.as("copy didn't influence original")
 				.isNull();
+	}
+
+	@Test
+	void collectMultipleTimes_detectsUnexpectedTermination() {
+		Flux<Integer> sourceFlux = Flux.range(1, 11);
+
+		StepVerifier stepVerifier = StepVerifier.create(sourceFlux)
+			.recordWith(ArrayList::new)
+			.expectNextCount(5)
+			.consumeRecordedWith(elements -> assertThat(elements).containsExactly(1, 2, 3, 4, 5))
+			.recordWith(ArrayList::new)
+			.expectNext(6)
+			.expectNext(7, 8, 9, 10)
+			.consumeRecordedWith(elements -> assertThat(elements).containsExactly(6, 7, 8, 9, 10))
+			.expectNext(11)
+			.expectErrorMessage("expected error");
+
+		assertThatExceptionOfType(AssertionError.class)
+			.isThrownBy(stepVerifier::verify)
+			.withMessage("expectation \"expectErrorMessage\" failed (expected: onError(\"expected error\"); actual: onComplete())");
+	}
+
+	@Test
+	void collectMultipleTimes_detectsUnexpectedCollectedElement1() {
+		Flux<Integer> sourceFlux = Flux.range(1, 10);
+
+		StepVerifier stepVerifier = StepVerifier.create(sourceFlux)
+			.recordWith(ArrayList::new)
+			.expectNextCount(5)
+			.consumeRecordedWith(elements -> assertThat(elements).containsExactly(1, 5))
+			.recordWith(ArrayList::new)
+			.expectNext(6, 7, 8, 9, 10)
+			.consumeRecordedWith(elements -> assertThat(elements).containsExactly(6, 7, 8, 9, 10))
+			.expectComplete();
+
+		assertThatExceptionOfType(AssertionError.class)
+			.isThrownBy(stepVerifier::verify)
+			.withMessage("\n" +
+				"Expecting:\n" +
+				"  [1, 2, 3, 4, 5]\n" +
+				"to contain exactly (and in same order):\n" +
+				"  [1, 5]\n" +
+				"but some elements were not expected:\n" +
+				"  [2, 3, 4]\n");
+	}
+
+	@Test
+	void collectMultipleTimes_detectsUnexpectedCollectedElement2() {
+		Flux<Integer> sourceFlux = Flux.range(1, 10);
+
+		StepVerifier stepVerifier = StepVerifier.create(sourceFlux)
+			.recordWith(ArrayList::new)
+			.expectNextCount(5)
+			.consumeRecordedWith(elements -> assertThat(elements).containsExactly(1, 2, 3, 4, 5))
+			.recordWith(ArrayList::new)
+			.expectNext(6, 7, 8, 9, 10)
+			.consumeRecordedWith(elements -> assertThat(elements).containsExactly(6, 10))
+			.expectComplete();
+
+		assertThatExceptionOfType(AssertionError.class)
+			.isThrownBy(stepVerifier::verify)
+			.withMessage("\n" +
+				"Expecting:\n" +
+				"  [6, 7, 8, 9, 10]\n" +
+				"to contain exactly (and in same order):\n" +
+				"  [6, 10]\n" +
+				"but some elements were not expected:\n" +
+				"  [7, 8, 9]\n");
+	}
+
+	@Test
+	void collectAfterFirst_reportsAssertionFailure() {
+		Flux<Integer> sourceFlux = Flux.range(1, 10);
+
+		StepVerifier stepVerifier = StepVerifier.create(sourceFlux)
+			.expectNext(1)
+			.recordWith(ArrayList::new)
+			.thenConsumeWhile(x -> true)
+			.consumeRecordedWith(elements -> assertThat(elements).containsExactly(2, 3, 4, 5, 6, 7, 8, 9))
+			.expectComplete();
+
+		assertThatExceptionOfType(AssertionError.class)
+			.isThrownBy(stepVerifier::verify)
+			.withMessage("\n" +
+				"Expecting:\n" +
+				"  [2, 3, 4, 5, 6, 7, 8, 9, 10]\n" +
+				"to contain exactly (and in same order):\n" +
+				"  [2, 3, 4, 5, 6, 7, 8, 9]\n" +
+				"but some elements were not expected:\n" +
+				"  [10]\n");
+	}
+
+	@Test
+	void collectEmptyAndNoopConsumeWhile_detectsMissingNext() {
+		Flux<Object> emptyFlux = Flux.empty();
+
+		final StepVerifier stepVerifier = StepVerifier.create(emptyFlux)
+			.recordWith(ArrayList::new)
+			.thenConsumeWhile(x -> true)
+			.consumeRecordedWith(elements -> assertThat(elements).isEmpty())
+			.expectNext("foo")
+			.expectComplete();
+
+		assertThatExceptionOfType(AssertionError.class)
+			.isThrownBy(stepVerifier::verify)
+			.withMessage("expectation \"expectNext(foo)\" failed (expected: onNext(foo); actual: onComplete())");
+	}
+
+	@Test
+	void collectEmptyAndNoopConsumeWhile_detectsWrongTermination() {
+		Flux<Object> errorFlux = Flux.error(new RuntimeException("oh no"));
+
+		final StepVerifier stepVerifier = StepVerifier.create(errorFlux)
+			.recordWith(ArrayList::new)
+			.thenConsumeWhile(x -> true)
+			.consumeRecordedWith(elements -> assertThat(elements).isEmpty())
+			.expectComplete();
+
+		assertThatExceptionOfType(AssertionError.class)
+			.isThrownBy(stepVerifier::verify)
+			.withMessage("expectation \"expectComplete\" failed (expected: onComplete(); actual: onError(java.lang.RuntimeException: oh no))");
 	}
 }

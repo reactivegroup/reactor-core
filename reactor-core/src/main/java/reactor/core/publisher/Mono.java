@@ -932,6 +932,7 @@ public abstract class Mono<T> implements CorePublisher<T> {
 	 * closure terminates (with onComplete, onError or cancel)
 	 * @param <T> the type of elements emitted by the resource closure, and thus the main sequence
 	 * @param <D> the type of the resource object
+	 *
 	 * @return a new {@link Mono} built around a "transactional" resource, with deferred emission until the
 	 * asynchronous cleanup sequence completes
 	 */
@@ -990,6 +991,7 @@ public abstract class Mono<T> implements CorePublisher<T> {
 	 * When {@code null}, the {@code asyncComplete} path is used instead.
 	 * @param <T> the type of elements emitted by the resource closure, and thus the main sequence
 	 * @param <D> the type of the resource object
+	 *
 	 * @return a new {@link Mono} built around a "transactional" resource, with several
 	 * termination path triggering asynchronous cleanup sequences
 	 *
@@ -1795,6 +1797,9 @@ public abstract class Mono<T> implements CorePublisher<T> {
 	 * Completion and Error will also be replayed.
 	 * <p>
 	 * <img class="marble" src="doc-files/marbles/cacheForMono.svg" alt="">
+	 * <p>
+	 * Once the first subscription is made to this {@link Mono}, the source is subscribed to and
+	 * the signal will be cached, indefinitely. This process cannot be cancelled.
 	 *
 	 * @return a replaying {@link Mono}
 	 */
@@ -1810,6 +1815,9 @@ public abstract class Mono<T> implements CorePublisher<T> {
 	 * the next {@link Subscriber} will start over a new subscription.
 	 * <p>
 	 * <img class="marble" src="doc-files/marbles/cacheWithTtlForMono.svg" alt="">
+	 * <p>
+	 * First subscription after the cache has been emptied triggers cache loading (ie
+	 * subscription to the source), which cannot be cancelled.
 	 *
 	 * @return a replaying {@link Mono}
 	 */
@@ -1818,19 +1826,22 @@ public abstract class Mono<T> implements CorePublisher<T> {
 	}
 
 	/**
-	* Turn this {@link Mono} into a hot source and cache last emitted signals for further
-	* {@link Subscriber}, with an expiry timeout.
-	* <p>
-	* Completion and Error will also be replayed until {@code ttl} triggers in which case
-	* the next {@link Subscriber} will start over a new subscription.
-	* <p>
-	* <img class="marble" src="doc-files/marbles/cacheWithTtlForMono.svg" alt="">
-	*
+	 * Turn this {@link Mono} into a hot source and cache last emitted signals for further
+	 * {@link Subscriber}, with an expiry timeout.
+	 * <p>
+	 * Completion and Error will also be replayed until {@code ttl} triggers in which case
+	 * the next {@link Subscriber} will start over a new subscription.
+	 * <p>
+	 * <img class="marble" src="doc-files/marbles/cacheWithTtlForMono.svg" alt="">
+	 * <p>
+	 * First subscription after the cache has been emptied triggers cache loading (ie
+	 * subscription to the source), which cannot be cancelled.
+	 *
 	 * @param ttl Time-to-live for each cached item and post termination.
 	 * @param timer the {@link Scheduler} on which to measure the duration.
 	 *
-	* @return a replaying {@link Mono}
-	*/
+	 * @return a replaying {@link Mono}
+	 */
 	public final Mono<T> cache(Duration ttl, Scheduler timer) {
 		return onAssembly(new MonoCacheTime<>(this, ttl, timer));
 	}
@@ -1854,6 +1865,9 @@ public abstract class Mono<T> implements CorePublisher<T> {
 	 * <p>
 	 * Note that subscribers that come in perfectly simultaneously could receive the same
 	 * cached signal even if the TTL is set to zero.
+	 * <p>
+	 * First subscription after the cache has been emptied triggers cache loading (ie
+	 * subscription to the source), which cannot be cancelled.
 	 *
 	 * @param ttlForValue the TTL-generating {@link Function} invoked when source is valued
 	 * @param ttlForError the TTL-generating {@link Function} invoked when source is erroring
@@ -1885,6 +1899,9 @@ public abstract class Mono<T> implements CorePublisher<T> {
 	 * <p>
 	 * Note that subscribers that come in perfectly simultaneously could receive the same
 	 * cached signal even if the TTL is set to zero.
+	 * <p>
+	 * First subscription after the cache has been emptied triggers cache loading (ie
+	 * subscription to the source), which cannot be cancelled.
 	 *
 	 * @param ttlForValue the TTL-generating {@link Function} invoked when source is valued
 	 * @param ttlForError the TTL-generating {@link Function} invoked when source is erroring
@@ -3024,6 +3041,7 @@ public abstract class Mono<T> implements CorePublisher<T> {
 	 *
 	 * @param asyncPredicate the function generating a {@link Publisher} of {@link Boolean}
 	 * to filter the Mono with
+	 *
 	 * @return a filtered {@link Mono}
 	 */
 	public final Mono<T> filterWhen(Function<? super T, ? extends Publisher<Boolean>> asyncPredicate) {
@@ -4093,7 +4111,7 @@ public abstract class Mono<T> implements CorePublisher<T> {
 	/**
 	 * Prepare a {@link Mono} which shares this {@link Mono} result similar to {@link Flux#shareNext()}.
 	 * This will effectively turn this {@link Mono} into a hot task when the first
-	 * {@link Subscriber} subscribes using {@link #subscribe} API. Further {@link Subscriber} will share the same {@link Subscription}
+	 * {@link Subscriber} subscribes using {@link #subscribe()} API. Further {@link Subscriber} will share the same {@link Subscription}
 	 * and therefore the same result.
 	 * It's worth noting this is an un-cancellable {@link Subscription}.
 	 * <p>
@@ -4106,10 +4124,10 @@ public abstract class Mono<T> implements CorePublisher<T> {
 			return this;
 		}
 
-		if (this instanceof NextProcessor) { //TODO should we check whether the NextProcessor has a source or not?
+		if (this instanceof NextProcessor && ((NextProcessor<?>) this).isRefCounted) { //TODO should we check whether the NextProcessor has a source or not?
 			return this;
 		}
-		return new NextProcessor<>(this);
+		return new NextProcessor<>(this, true);
 	}
 
 	/**
@@ -4162,7 +4180,12 @@ public abstract class Mono<T> implements CorePublisher<T> {
 	public final Disposable subscribe() {
 		if(this instanceof NextProcessor){
 			NextProcessor<T> s = (NextProcessor<T>)this;
-			if (s.source != null) { //enables `Sinks.one().subscribe()` usecases
+			// Mono#share() should return a new lambda subscriber during subscribe.
+			// This can now be precisely detected with source != null in combination to the isRefCounted boolean being true.
+			// `Sinks.one().subscribe()` case is now split into a separate implementation.
+			// Otherwise, this is a (legacy) #toProcessor() usage, and we return the processor itself below (and don't forget to connect() it):
+			if (s.source != null && !s.isRefCounted) {
+				s.subscribe(new LambdaMonoSubscriber<>(null, null, null, null, null));
 				s.connect();
 				return s;
 			}
